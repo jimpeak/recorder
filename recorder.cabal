@@ -1,13 +1,13 @@
 name:                recorder
 version:             0.1.0.0
-synopsis:            Initial project template from stack
+synopsis:            Generate records from a mysql database schema
 description:         Please see README.md
 homepage:            http://github.com/githubuser/recorder#readme
 license:             BSD3
 license-file:        LICENSE
-author:              Author name here
-maintainer:          example@example.com
-copyright:           2016 Author Here
+author:              Andre Paquet
+maintainer:          andre.paquet@gmail.com
+copyright:           2016 Andre Paquet
 category:            Web
 build-type:          Simple
 -- extra-source-files:
@@ -25,4 +25,4 @@ executable recorder-exe
 
 source-repository head
   type:     git
-  location: https://github.com/githubuser/recorder
+  location: https://github.com/jimpeak/recorder

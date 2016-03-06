@@ -30,7 +30,7 @@ data Column = Column {
     iskey :: Bool
 }
 
-data HaskellRecord = HaskellRecord {
+data Record = Record {
     hname  :: Text,
     fields :: [Field]
 }
@@ -118,8 +118,8 @@ extractTable res@(x:_) = Table (tableName x) (map extractColumn res)
 extractColumn :: Result -> Column
 extractColumn (_, cname', dtype', iskey', isnull', def') = Column cname' (convertSqlType dtype' isnull') def' (iskey' == "YES")
 
-tableToRecord :: Table -> HaskellRecord
-tableToRecord t = HaskellRecord (toTitle (tname t)) fields
+tableToRecord :: Table -> Record
+tableToRecord t = Record (toTitle (tname t)) fields
             where
                 fields = fmap columnToField (cols t)
 
@@ -129,7 +129,7 @@ columnToField c = Field (append "_" (toCaseFold cname')) haskTyp
         cname' = cname c
         haskTyp = haskFromSql (ctyp c)
 
-printRecords :: Conf -> [HaskellRecord] -> IO ()
+printRecords :: Conf -> [Record] -> IO ()
 printRecords conf recs = do
     putStrLn "{-# DeriveGeneric #-}\n"
     putStrLn $ unwords ["module", package conf, "("]
@@ -140,14 +140,14 @@ printRecords conf recs = do
     where
         recNames = map (flip append "(..)" . hname) recs
 
-printImports :: [HaskellRecord] -> IO ()
+printImports :: [Record] -> IO ()
 printImports recs = do
     let flds = concatMap fields recs
         mimps = mapMaybe (imports . ftyp) flds
         imps = map (append "import    ") mimps
     mapM_ putStrLn imps
 
-printRec :: HaskellRecord -> IO ()
+printRec :: Record -> IO ()
 printRec r = do
     putStr $ unwords [ "data", recName, "=", recName, "{\n    "]
     putStrLn $ intercalate "\n  , " fldsStr
