@@ -5,7 +5,7 @@ module Main (
     main
     ) where
 
-import           Data.Function
+import           Data.Function         (on)
 import           Data.List             hiding (intercalate, unwords)
 import           Data.Maybe            (mapMaybe)
 import           Data.Text             hiding (concat, filter, groupBy, map, concatMap)
@@ -40,16 +40,16 @@ data Field = Field {
     ftyp  :: HaskellType
 }
 
-haskTypeFromType SqlText = HaskText
-haskTypeFromType SqlInt = HaskInt
-haskTypeFromType SqlLong = HaskLong
-haskTypeFromType SqlBool = HaskBool
-haskTypeFromType SqlNumeric = HaskNumeric
-haskTypeFromType SqlByteArray = HaskByteArray
-haskTypeFromType SqlDate = HaskDate
-haskTypeFromType SqlTime = HaskTime
-haskTypeFromType SqlOther = HaskUnknown
-haskTypeFromType (SqlMaybe t) = HaskMaybe $ haskTypeFromType t
+haskFromSql SqlText = HaskText
+haskFromSql SqlInt = HaskInt
+haskFromSql SqlLong = HaskLong
+haskFromSql SqlBool = HaskBool
+haskFromSql SqlNumeric = HaskNumeric
+haskFromSql SqlByteArray = HaskByteArray
+haskFromSql SqlDate = HaskDate
+haskFromSql SqlTime = HaskTime
+haskFromSql SqlOther = HaskUnknown
+haskFromSql (SqlMaybe t) = HaskMaybe $ haskFromSql t
 
 typeToStr HaskText = "!Text"
 typeToStr HaskInt = "!Int"
@@ -62,8 +62,8 @@ typeToStr HaskTime = "!UTCTime"
 typeToStr HaskUnknown = "!Unknown"
 typeToStr (HaskMaybe t) = append "!Maybe " $ typeToStr t
 
-typeFromSql s isnull
-      | isnull == "YES" = SqlMaybe $ typeFromSql s ""
+convertSqlType s isnull
+      | isnull == "YES" = SqlMaybe $ convertSqlType s ""
       | s `elem` ["text", "varchar", "char"] = SqlText
       | s `elem` ["integer", "int", "smallint", "tinyint"] = SqlInt
       | s `elem` ["bigint", "long"] = SqlLong
@@ -80,6 +80,8 @@ imports HaskDate = Just "Data.Time.Calendar"
 imports HaskNumeric = Just "Data.Decimal"
 imports _ = Nothing
 
+
+-- Configuration
 data Conf = Conf {
     password :: String,
     server   :: String,
@@ -90,12 +92,13 @@ data Conf = Conf {
 
 instance ParseRecord Conf
 
-tableName (t, _, _, _, _, _) = t
-
+-- Result type used for the query
 type Result = (Text, Text, Text, Text, Text, Maybe Text)
 
-groupByTable :: [Result] -> [[Result]]
-groupByTable = groupBy ( (==) `on` tableName)
+tableName (t, _, _, _, _, _) = t
+
+groupResultByTable :: [Result] -> [[Result]]
+groupResultByTable = groupBy ( (==) `on` tableName)
 
 extractTables :: Conf -> IO [Table]
 extractTables conf = do
@@ -105,7 +108,7 @@ extractTables conf = do
         connectHost = server conf }
     let q =  "Select TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_KEY, IS_NULLABLE, COLUMN_DEFAULT FROM COLUMNS WHERE TABLE_SCHEMA = ?"
     xs <- query conn q [database conf] :: IO [Result]
-    let gxs = groupByTable xs
+    let gxs = groupResultByTable xs
         tables = map extractTable gxs
     return tables
 
@@ -113,14 +116,7 @@ extractTable :: [Result] -> Table
 extractTable res@(x:_) = Table (tableName x) (map extractColumn res)
 
 extractColumn :: Result -> Column
-extractColumn (_, cname', dtype', iskey', isnull', def') = Column cname' (typeFromSql dtype' isnull') def' (iskey' == "YES")
-
-main = do
-    conf <- getRecord "Configuration"
-    tables <- extractTables (conf :: Conf)
-    let records = fmap tableToRecord tables
-    printRecords conf records
-    return ()
+extractColumn (_, cname', dtype', iskey', isnull', def') = Column cname' (convertSqlType dtype' isnull') def' (iskey' == "YES")
 
 tableToRecord :: Table -> HaskellRecord
 tableToRecord t = HaskellRecord (toTitle (tname t)) fields
@@ -131,7 +127,7 @@ columnToField :: Column -> Field
 columnToField c = Field (append "_" (toCaseFold cname')) haskTyp
     where
         cname' = cname c
-        haskTyp = haskTypeFromType (ctyp c)
+        haskTyp = haskFromSql (ctyp c)
 
 printRecords :: Conf -> [HaskellRecord] -> IO ()
 printRecords conf recs = do
@@ -159,7 +155,14 @@ printRec r = do
     where
         recName = hname r
         flds = fields r
-        fldsStr = map printField flds
+        fldsStr = map fieldLine flds
 
-printField :: Field -> Text
-printField f = unwords [fname f,  "::", typeToStr (ftyp f)]
+fieldLine :: Field -> Text
+fieldLine f = unwords [fname f, "::", typeToStr (ftyp f)]
+
+main = do
+    conf <- getRecord "Configuration"
+    tables <- extractTables (conf :: Conf)
+    let records = fmap tableToRecord tables
+    printRecords conf records
+    return ()
