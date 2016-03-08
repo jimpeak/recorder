@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module Main (
     main
@@ -14,6 +15,7 @@ import           Data.Text.IO          (putStr, putStrLn)
 import           Database.MySQL.Simple
 import           Options.Generic
 import           Prelude               hiding (putStr, putStrLn, unwords)
+import           Text.Printf.TH
 
 convertSqlType s isnull
       | isnull == "YES" = SqlMaybe $ convertSqlType s ""
@@ -33,7 +35,6 @@ importStr HaskDate = Just "Data.Time.Calendar"
 importStr HaskNumeric = Just "Data.Decimal"
 importStr _ = Nothing
 
-
 -- Configuration
 data Conf = Conf {
     password        :: String,
@@ -47,6 +48,8 @@ data Conf = Conf {
 
 instance ParseRecord Conf
 
+-- utils
+
 -- Result type used for the query
 type Result = (Text, Text, Text, Text, Text, Maybe Text)
 
@@ -54,6 +57,8 @@ tableName (t, _, _, _, _, _) = t
 
 groupResultByTable :: [Result] -> [[Result]]
 groupResultByTable = groupBy ( (==) `on` tableName)
+
+-- extract
 
 extractTables :: Conf -> IO [Table]
 extractTables conf = do
@@ -84,15 +89,20 @@ columnToField c = Field (append "_" (toCaseFold cname')) haskTyp (iskey c)
         cname' = cname c
         haskTyp = haskFromSql (ctyp c)
 
+-- print
+
 printRecords :: Conf -> [Record] -> IO ()
 printRecords conf recs = do
-    putStrLn "{-# DeriveGeneric #-}\n"
-    putStrLn $ unwords ["module", modulename conf, "("]
-    putStrLn $ intercalate "\n," recNames
-    putStrLn ") where\n"
+    [stP|{-# DeriveGeneric #-}
+
+module %s (
+%s
+) where
+|] (modulename conf) fRecNames
     printImports recs
     mapM_ printRec recs
     where
+        fRecNames = intercalate "\n," recNames
         recNames = map (flip append "(..)" . hname) recs
 
 printImports :: [Record] -> IO ()
@@ -104,11 +114,16 @@ printImports recs = do
 
 printRec :: Record -> IO ()
 printRec r = do
-    putStr $ unwords [ "data", recName, "=", recName, "{\n    "]
-    putStrLn $ intercalate "\n  , " fldsStr
-    putStrLn $ unwords ["} deriving (Generic, Show)\n\ninstance ToJSON", recName, "\ninstance FromJSON", recName, "\n"]
+    [stP|data %s = %s {
+    %s
+} deriving (Generic, Show)
+
+instance ToJSON %s
+instance ToJSON %s
+|] recName recName fldsStrs recName recName
     printInstance r
     where
+        fldsStrs = intercalate "\n  , " fldsStr
         recName = hname r
         flds = fields r
         fldsStr = map fieldLine flds
@@ -117,14 +132,14 @@ fieldLine :: Field -> Text
 fieldLine f = unwords [fname f, "::", typeToStr (ftyp f)]
 
 printInstance :: Record -> IO ()
-printInstance r = do
-    putStrLn $ unwords ["instance Recorder", recName, "where"]
-    putStrLn $ unwords ["    type Key", recName, "= Key (", tupleKeys ,")"]
-    putStrLn "    find conn key = do"
-    putStrLn $ unwords ["        x:_ <- query conn \"SELECT * FROM", lRecName, "WHERE", whereStr, "\" (", qMarks, ")"]
-    putStrLn "        return x"
-    putStrLn $ unwords ["    findAll conn -> query conn \"SELECT * FROM", lRecName, "\""]
-    putStrLn ""
+printInstance r =
+    [stP|instance %s where
+    type Key %s = Key (%s)
+    find conn key = do
+        x:_ <- query conn "SELECT * FROM %s WHERE %s" (%s)
+        return x
+    findAll conn = query_ conn "SELECT * FROM %s"
+|] recName recName tupleKeys lRecName whereStr qMarks lRecName
     where
         recName = hname r
         lRecName = toLower recName
