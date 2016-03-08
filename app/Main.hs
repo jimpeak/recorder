@@ -10,7 +10,7 @@ import           Data.Function         (on)
 import           Data.List             hiding (intercalate, unwords)
 import           Data.Maybe            (mapMaybe)
 import           Data.Recorder
-import           Data.Text             hiding (concat, filter, groupBy, map, concatMap)
+import           Data.Text             hiding (concat, filter, groupBy, map, concatMap, length)
 import           Data.Text.IO          (putStr, putStrLn)
 import           Database.MySQL.Simple
 import           Options.Generic
@@ -135,19 +135,24 @@ printInstance :: Record -> IO ()
 printInstance r =
     [stP|instance %s where
     type Key %s = Key (%s)
-    find conn key = do
+    key a = Key (%s)
+    find conn Key (%s) = do
         x:_ <- query conn "SELECT * FROM %s WHERE %s" (%s)
         return x
     findAll conn = query_ conn "SELECT * FROM %s"
-|] recName recName tupleKeys lRecName whereStr qMarks lRecName
+|] recName recName tupleKeyTypes tupleKeyValues keyMatch lRecName whereStr keyMatch lRecName
     where
         recName = hname r
+        keyMatch = sepComma $ map (append "k" . pack . show) [1..(length keys)]
         lRecName = toLower recName
-        tupleKeys = intercalate ", " strKeys
-        strKeys = map (typeToStr . ftyp) keys
+        tupleKeyValues = sepComma strKeyValues
+        strKeyValues = map ( flip append " a" . fname) keys
+        tupleKeyTypes = sepComma strKeyTypes
+        strKeyTypes = map (typeToStr . ftyp) keys
         keys = filter fiskey $ fields r
         whereStr = intercalate " AND " $ map (\k -> append (fname k) " = ?") keys
-        qMarks = intercalate ", " $ map (const "?") keys
+
+sepComma = intercalate ", "
 
 main = do
     conf <- getRecord "Configuration"
