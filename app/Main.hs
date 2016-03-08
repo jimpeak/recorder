@@ -8,6 +8,7 @@ module Main (
 import           Data.Function         (on)
 import           Data.List             hiding (intercalate, unwords)
 import           Data.Maybe            (mapMaybe)
+import           Data.Recorder
 import           Data.Text             hiding (concat, filter, groupBy, map, concatMap)
 import           Data.Text.IO          (putStr, putStrLn)
 import           Database.MySQL.Simple
@@ -37,7 +38,8 @@ data Record = Record {
 
 data Field = Field {
     fname :: Text,
-    ftyp  :: HaskellType
+    ftyp  :: HaskellType,
+    fiskey :: Bool
 }
 
 haskFromSql SqlText = HaskText
@@ -74,20 +76,22 @@ convertSqlType s isnull
       | s `elem` ["datetime", "time", "timestamp"] = SqlTime
       | otherwise = SqlOther
 
-imports :: HaskellType -> Maybe Text
-imports HaskTime = Just "Data.Time.Clock"
-imports HaskDate = Just "Data.Time.Calendar"
-imports HaskNumeric = Just "Data.Decimal"
-imports _ = Nothing
+importStr :: HaskellType -> Maybe Text
+importStr HaskTime = Just "Data.Time.Clock"
+importStr HaskDate = Just "Data.Time.Calendar"
+importStr HaskNumeric = Just "Data.Decimal"
+importStr _ = Nothing
 
 
 -- Configuration
 data Conf = Conf {
-    password :: String,
-    server   :: String,
-    user     :: String,
-    database :: String,
-    package  :: Text
+    password        :: String,
+    server          :: String,
+    user            :: String,
+    database        :: String,
+    modulename      :: Text,
+    lenses          :: Maybe Bool,
+    lensesPackage   :: Maybe String
 } deriving (Generic, Show)
 
 instance ParseRecord Conf
@@ -116,7 +120,7 @@ extractTable :: [Result] -> Table
 extractTable res@(x:_) = Table (tableName x) (map extractColumn res)
 
 extractColumn :: Result -> Column
-extractColumn (_, cname', dtype', iskey', isnull', def') = Column cname' (convertSqlType dtype' isnull') def' (iskey' == "YES")
+extractColumn (_, cname', dtype', iskey', isnull', def') = Column cname' (convertSqlType dtype' isnull') def' (iskey' == "PRI")
 
 tableToRecord :: Table -> Record
 tableToRecord t = Record (toTitle (tname t)) fields
@@ -124,7 +128,7 @@ tableToRecord t = Record (toTitle (tname t)) fields
                 fields = fmap columnToField (cols t)
 
 columnToField :: Column -> Field
-columnToField c = Field (append "_" (toCaseFold cname')) haskTyp
+columnToField c = Field (append "_" (toCaseFold cname')) haskTyp (iskey c)
     where
         cname' = cname c
         haskTyp = haskFromSql (ctyp c)
@@ -132,7 +136,7 @@ columnToField c = Field (append "_" (toCaseFold cname')) haskTyp
 printRecords :: Conf -> [Record] -> IO ()
 printRecords conf recs = do
     putStrLn "{-# DeriveGeneric #-}\n"
-    putStrLn $ unwords ["module", package conf, "("]
+    putStrLn $ unwords ["module", modulename conf, "("]
     putStrLn $ intercalate "\n," recNames
     putStrLn ") where\n"
     printImports recs
@@ -143,7 +147,7 @@ printRecords conf recs = do
 printImports :: [Record] -> IO ()
 printImports recs = do
     let flds = concatMap fields recs
-        mimps = mapMaybe (imports . ftyp) flds
+        mimps = mapMaybe (importStr . ftyp) flds
         imps = map (append "import    ") mimps
     mapM_ putStrLn imps
 
@@ -151,7 +155,8 @@ printRec :: Record -> IO ()
 printRec r = do
     putStr $ unwords [ "data", recName, "=", recName, "{\n    "]
     putStrLn $ intercalate "\n  , " fldsStr
-    putStrLn $ unwords ["} deriving (Generic, Show)\n\ninstance ToJSON", recName, "\n"]
+    putStrLn $ unwords ["} deriving (Generic, Show)\n\ninstance ToJSON", recName, "\ninstance FromJSON", recName, "\n"]
+    printInstance r
     where
         recName = hname r
         flds = fields r
@@ -160,9 +165,26 @@ printRec r = do
 fieldLine :: Field -> Text
 fieldLine f = unwords [fname f, "::", typeToStr (ftyp f)]
 
+printInstance :: Record -> IO ()
+printInstance r = do
+    putStrLn $ unwords ["instance Recorder", recName, "where"]
+    putStrLn $ unwords ["    type Key", recName, "= Key (", tupleKeys ,")"]
+    putStrLn "    find conn key = do"
+    putStrLn $ unwords ["        x:_ <- query conn \"SELECT * FROM", lRecName, "WHERE", whereStr, "\" (", qMarks, ")"]
+    putStrLn "        return x"
+    putStrLn $ unwords ["    findAll conn -> query conn \"SELECT * FROM", lRecName, "\""]
+    putStrLn ""
+    where
+        recName = hname r
+        lRecName = toLower recName
+        tupleKeys = intercalate ", " strKeys
+        strKeys = map (typeToStr . ftyp) keys
+        keys = filter fiskey $ fields r
+        whereStr = intercalate " AND " $ map (\k -> append (fname k) " = ?") keys
+        qMarks = intercalate ", " $ map (const "?") keys
+
 main = do
     conf <- getRecord "Configuration"
     tables <- extractTables (conf :: Conf)
-    let records = fmap tableToRecord tables
+    let records = map tableToRecord tables
     printRecords conf records
-    return ()
