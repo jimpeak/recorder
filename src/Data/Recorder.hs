@@ -64,7 +64,6 @@ typeToStr HaskTime = "!UTCTime"
 typeToStr HaskUnknown = "!Unknown"
 typeToStr (HaskMaybe t) = append "!Maybe " $ typeToStr t
 
-
 class Recorder a where
     type Key a
     key :: a -> Key a
