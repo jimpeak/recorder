@@ -35,7 +35,10 @@ importStr HaskDate = Just "Data.Time.Calendar"
 importStr HaskNumeric = Just "Data.Decimal"
 importStr _ = Nothing
 
--- Configuration
+--
+-- configuration
+--
+
 data Conf = Conf {
     password        :: String,
     server          :: String,
@@ -48,7 +51,9 @@ data Conf = Conf {
 
 instance ParseRecord Conf
 
+--
 -- utils
+--
 
 -- Result type used for the query
 type Result = (Text, Text, Text, Text, Text, Maybe Text)
@@ -58,7 +63,9 @@ tableName (t, _, _, _, _, _) = t
 groupResultByTable :: [Result] -> [[Result]]
 groupResultByTable = groupBy ( (==) `on` tableName)
 
+--
 -- extract
+--
 
 extractTables :: Conf -> IO [Table]
 extractTables conf = do
@@ -89,7 +96,9 @@ columnToField c = Field (append "_" (toCaseFold cname')) haskTyp (iskey c)
         cname' = cname c
         haskTyp = haskFromSql (ctyp c)
 
+--
 -- print
+--
 
 printRecords :: Conf -> [Record] -> IO ()
 printRecords conf recs = do
