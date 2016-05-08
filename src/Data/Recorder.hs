@@ -53,16 +53,16 @@ haskFromSql SqlTime = HaskTime
 haskFromSql SqlOther = HaskUnknown
 haskFromSql (SqlMaybe t) = HaskMaybe $ haskFromSql t
 
-typeToStr HaskText = "!Text"
-typeToStr HaskInt = "!Int"
-typeToStr HaskLong = "!Integer"
-typeToStr HaskBool = "!Bool"
-typeToStr HaskNumeric = "!Decimal"
-typeToStr HaskByteArray = "!ByteArray"
-typeToStr HaskDate = "!Day"
-typeToStr HaskTime = "!UTCTime"
-typeToStr HaskUnknown = "!Unknown"
-typeToStr (HaskMaybe t) = append "!Maybe " $ typeToStr t
+typeToStr HaskText = "Text"
+typeToStr HaskInt = "Int"
+typeToStr HaskLong = "Integer"
+typeToStr HaskBool = "Bool"
+typeToStr HaskNumeric = "Decimal"
+typeToStr HaskByteArray = "ByteArray"
+typeToStr HaskDate = "Day"
+typeToStr HaskTime = "UTCTime"
+typeToStr HaskUnknown = "Unknown"
+typeToStr (HaskMaybe t) = append "Maybe " $ typeToStr t
 
 class Recorder a where
     type Key a

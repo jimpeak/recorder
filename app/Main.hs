@@ -138,11 +138,11 @@ instance ToJSON %s
         fldsStr = map fieldLine flds
 
 fieldLine :: Field -> Text
-fieldLine f = unwords [fname f, "::", typeToStr (ftyp f)]
+fieldLine f = unwords [fname f, "::", (append "!" . typeToStr . ftyp) f]
 
 printInstance :: Record -> IO ()
 printInstance r =
-    [stP|instance %s where
+    [stP|instance Recorder %s where
     type Key %s = Key (%s)
     key a = Key (%s)
     find conn Key (%s) = do
@@ -157,7 +157,7 @@ printInstance r =
         tupleKeyValues = sepComma strKeyValues
         strKeyValues = map ( flip append " a" . fname) keys
         tupleKeyTypes = sepComma strKeyTypes
-        strKeyTypes = map (typeToStr . ftyp) keys
+        strKeyTypes = map ( append "!" . typeToStr . ftyp) keys
         keys = filter fiskey $ fields r
         whereStr = intercalate " AND " $ map (\k -> append (fname k) " = ?") keys
 
